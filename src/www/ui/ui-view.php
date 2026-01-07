@@ -391,6 +391,8 @@ class ui_view extends FO_Plugin
       fclose($inputFile);
     }
 
+    $output .= '<script src="scripts/ui-view-cycling.js" type="text/javascript"></script>';
+
     return $getPageMenuInline ? array($PageMenu, $output) : $output;
   }
 
