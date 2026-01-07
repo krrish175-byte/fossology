@@ -103,6 +103,9 @@ class ScancodesAgentPlugin extends AgentPlugin
         case "url":
           $scanMode .= 'u';
           break;
+        case "package":
+          $scanMode .= 'p';
+          break;
       }
     }
     if (empty($scanMode)) {

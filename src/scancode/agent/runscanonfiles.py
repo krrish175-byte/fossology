@@ -107,7 +107,48 @@ def update_urls(urls):
 
   return updated_urls
 
-def scan(line, scan_copyrights, scan_licenses, scan_emails, scan_urls, min_score):
+
+def update_packages(packages):
+  """
+  Extracts relevant information from the 'packages' data and formats it as licenses.
+  Parameters:
+    packages (dict): A dictionary containing package information.
+  Returns:
+    list: A list of dictionaries containing package information formatted as license matches.
+  """
+  updated_packages_as_licenses = []
+  
+  for package in packages.get("packages", []):
+    # Use declared license as the license expression
+    license_expression = package.get("declared_license_expression", "unknown")
+    license_expression_spdx = package.get("declared_license_expression_spdx", license_expression)
+    
+    # Create a "match" entry compatible with license structure
+    # ScanCode packages usually have a 'package_uid' or similar, but we want to map this to valid license data
+    # We will use the package name/version as matched text if available, or just the type
+    
+    # Construct a synthetic match
+    mapped_entry = {
+      "license_expression_spdx": license_expression_spdx,
+      "score": 100.0, # Packages are usually high confidence
+      "license_expression": license_expression,
+      "rule_url": package.get("repository_homepage_url") or package.get("homepage_url") or "",
+      "matched_text": f"{package.get('type', '')} package: {package.get('name', '')}",
+      # Package detection might not always have a precise start line in the same way, but usually does in 'pro' or some versions.
+      # If not, default to 1 so it doesn't crash, or try to find it.
+      # API 'get_packages' results: let's assume standard structure.
+      # Note: 'keywords' or 'data' might contain line info.
+      # Actually, scancode-toolkit packages often don't have 'matches' like licenses.
+      # We might need to look at how to get line numbers.
+      # For now, let's use a safe default if missing, or try to get it from 'location' if available? No, that's external.
+      # Let's check if 'start_line' is in the package data.
+      "start_line": package.get("start_line", 1) 
+    }
+    updated_packages_as_licenses.append(mapped_entry)
+
+  return updated_packages_as_licenses
+
+def scan(line, scan_copyrights, scan_licenses, scan_emails, scan_urls, scan_packages, min_score):
   """
   Processes a single file and returns the results.
   Parameters:
@@ -116,6 +157,7 @@ def scan(line, scan_copyrights, scan_licenses, scan_emails, scan_urls, min_score
     scan_licenses (bool):
     scan_emails (bool):
     scan_urls (bool):
+    scan_packages (bool):
   """
   result = {'file': line.strip()}
   result['licenses'] = []
@@ -135,6 +177,18 @@ def scan(line, scan_copyrights, scan_licenses, scan_emails, scan_urls, min_score
     updated_licenses = update_license(licenses.get("license_detections", []))
     result['licenses'] = updated_licenses
 
+  if scan_packages:
+    # Assuming api.get_package_data or get_packages exists. 
+    # Standard ScanCode API usually has get_packages.
+    try:
+      packages = api.get_packages(result['file'])
+      updated_packages = update_packages(packages)
+      # Append package licenses to the main licenses list
+      result['licenses'].extend(updated_packages)
+    except AttributeError:
+      # Fallback or log if get_packages is not available in the installed version
+      pass
+      
   if scan_emails:
     emails = api.get_emails(result['file'])
     updated_emails = update_emails(emails)
@@ -147,7 +201,7 @@ def scan(line, scan_copyrights, scan_licenses, scan_emails, scan_urls, min_score
 
   return result
 
-def process_files(file_location, outputFile, scan_copyrights, scan_licenses, scan_emails, scan_urls, min_score):
+def process_files(file_location, outputFile, scan_copyrights, scan_licenses, scan_emails, scan_urls, scan_packages, min_score):
   """
   Processes the file containing the list of files to scan.
   Parameters:
@@ -155,6 +209,7 @@ def process_files(file_location, outputFile, scan_copyrights, scan_licenses, sca
     scan_licenses (bool):
     scan_emails (bool):
     scan_urls (bool):
+    scan_packages (bool):
   """
   # Open the file containing the list of files to scan
   with open(file_location, "r") as locations:
@@ -164,7 +219,7 @@ def process_files(file_location, outputFile, scan_copyrights, scan_licenses, sca
       first_iteration = True
       for line in locations:
         try:
-          result = scan(line, scan_copyrights, scan_licenses, scan_emails, scan_urls, min_score)
+          result = scan(line, scan_copyrights, scan_licenses, scan_emails, scan_urls, scan_packages, min_score)
 
           if not first_iteration:  # Check if it's not the first result
             json_file.write(',\n')  # Add a comma to separate elements in the JSON array
@@ -184,6 +239,7 @@ if __name__ == "__main__":
   parser.add_argument("-l", "--scan-licenses", action="store_true", help="Scan for licenses")
   parser.add_argument("-e", "--scan-emails", action="store_true", help="Scan for emails")
   parser.add_argument("-u", "--scan-urls", action="store_true", help="Scan for urls")
+  parser.add_argument("-p", "--scan-packages", action="store_true", help="Scan for packages")
   parser.add_argument("-m", "--min-score", dest="min_score", type=int, default=0, help="Minimum score for a license to be included in the results")
   parser.add_argument('file_location', type=str, help='Path to the file you want to process')
   parser.add_argument('outputFile', type=str, help='Path to the file you want save results to')
@@ -193,8 +249,9 @@ if __name__ == "__main__":
   scan_licenses = args.scan_licenses
   scan_emails = args.scan_emails
   scan_urls = args.scan_urls
+  scan_packages = args.scan_packages
   min_score = args.min_score
   file_location = args.file_location
   outputFile = args.outputFile
 
-  process_files(file_location, outputFile, scan_copyrights, scan_licenses, scan_emails, scan_urls, min_score)
+  process_files(file_location, outputFile, scan_copyrights, scan_licenses, scan_emails, scan_urls, scan_packages, min_score)
